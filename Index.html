@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Board Game</title>
+    <style>
+        /* Basic CSS for the game board and objects */
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            overflow: hidden; /* Prevent scrollbars if necessary */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh; /* Full viewport height */
+            background-color: #f0f0f0; /* Optional background color */
+        }
+        #game-board {
+            position: relative;
+            width: 80vw; /* Responsive width */
+            height: 80vw; /* Responsive height to keep aspect ratio */
+            max-width: 400px; /* Maximum width */
+            max-height: 400px; /* Maximum height */
+            border: 2px solid black;
+            background-color: #eee;
+            box-sizing: border-box; /* Include border and padding in the element's total width and height */
+            overflow: hidden; /* Prevent scrollbars inside the board */
+        }
+        .cell {
+            width: 20%; /* Adjust cell size proportionally */
+            height: 20%; /* Adjust cell size proportionally */
+            /* Remove border to eliminate grid lines */
+            box-sizing: border-box;
+            /* No border or background for cells */
+        }
+        .object, .key, .special, .rs {
+            position: absolute;
+            background-size: cover;
+            cursor: grab;
+        }
+        #message-box {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px;
+            background-color: white;
+            border: 2px solid black;
+            z-index: 1000;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="game-board"></div>
+
+    <script>
+        // Game variables
+        const GRID_SIZE_X = 6;
+        const GRID_SIZE_Y = 6;
+        const CELL_SIZE = 16.67; // Percentage based on 20% cell width/height
+
+        let objects = [
+            { id: 'object1', type: 'object', x: 0, y: 0, width: 1, height: 3, imageUrl: 'images/Rb.png', move: 'vertical' },
+            { id: 'object2', type: 'object', x: 0, y: 0, width: 1, height: 3, imageUrl: 'images/Rb.png', move: 'vertical' },
+            { id: 'specialObject1', type: 'special', x: 0, y: 0, width: 2, height: 1, imageUrl: 'images/Gs.png', move: 'horizontal' },
+            { id: 'specialObject2', type: 'special', x: 0, y: 0, width: 2, height: 1, imageUrl: 'images/Gs.png', move: 'horizontal' },
+            { id: 'specialObject3', type: 'special', x: 0, y: 0, width: 2, height: 1, imageUrl: 'images/Gs.png', move: 'horizontal' },
+            { id: 'keyObject', type: 'key', x: 2, y: 2, width: 2, height: 1, imageUrl: 'images/Key.png', move: 'horizontal' },
+            { id: 'rsObject1', type: 'rs', x: 0, y: 0, width: 1, height: 2, imageUrl: 'images/Rs.png', move: 'vertical' },
+            { id: 'rsObject2', type: 'rs', x: 0, y: 0, width: 1, height: 2, imageUrl: 'images/Rs.png', move: 'vertical' },
+            { id: 'rsObject3', type: 'rs', x: 0, y: 0, width: 1, height: 2, imageUrl: 'images/Rs.png', move: 'vertical' },
+            { id: 'rsObject4', type: 'rs', x: 0, y: 0, width: 1, height: 2, imageUrl: 'images/Rs.png', move: 'vertical' }
+        ];
+
+        let isDragging = false;
+        let dragStartX, dragStartY, initialX, initialY, draggedObject;
+
+        // Create the game board
+        function createBoard() {
+            const board = document.getElementById('game-board');
+            board.innerHTML = ''; // Clear previous board
+
+            // Create cells without borders
+            for (let y = 0; y < GRID_SIZE_Y; y++) {
+                for (let x = 0; x < GRID_SIZE_X; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    board.appendChild(cell);
+                }
+            }
+
+            // Place the key object in its fixed position
+            placeObject(objects.find(obj => obj.type === 'key'));
+
+            // Randomly place the other objects
+            objects.filter(obj => obj.type !== 'key').forEach(placeObjectRandomly);
+        }
+
+        function placeObject(obj) {
+            const element = document.createElement('div');
+            element.id = obj.id;
+            element.className = obj.type; // Assign class for easier selection
+            element.style.left = `${obj.x * CELL_SIZE}%`;
+            element.style.top = `${obj.y * CELL_SIZE}%`;
+            element.style.width = `${obj.width * CELL_SIZE}%`;
+            element.style.height = `${obj.height * CELL_SIZE}%`;
+            element.style.backgroundImage = `url('${obj.imageUrl}')`;
+            element.style.backgroundSize = 'cover';
+            element.style.position = 'absolute';
+            element.style.cursor = 'grab';
+
+            // Add event listeners for dragging
+            element.addEventListener('mousedown', onMouseDown);
+            element.addEventListener('touchstart', onTouchStart);
+
+            document.getElementById('game-board').appendChild(element);
+        }
+
+        function placeObjectRandomly(obj) {
+            let positionValid = false;
+            while (!positionValid) {
+                obj.x = Math.floor(Math.random() * (GRID_SIZE_X - obj.width + 1));
+                obj.y = Math.floor(Math.random() * (GRID_SIZE_Y - obj.height + 1));
+
+                // Ensure the new position does not collide with existing objects
+                if (!isCollision(obj.y, obj.x, obj.width, obj.height)) {
+                    positionValid = true;
+                }
+            }
+            placeObject(obj);
+        }
+
+        // Add event listeners to the document
+        document.addEventListener('mouseup', onMouseUp);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('touchend', onTouchEnd);
+        document.addEventListener('touchmove', onTouchMove);
+
+        function onMouseDown(e) {
+            if (['object', 'key', 'special', 'rs'].includes(e.target.className)) {
+                isDragging = true;
+                dragStartX = e.clientX;
+                dragStartY = e.clientY;
+                draggedObject = objects.find(obj => obj.id === e.target.id);
+                initialX = draggedObject.x;
+                initialY = draggedObject.y;
+                e.target.style.cursor = 'grabbing';
+            }
+        }
+
+        function onTouchStart(e) {
+            if (['object', 'key', 'special', 'rs'].includes(e.target.className)) {
+                isDragging = true;
+                dragStartX = e.touches[0].clientX;
+                dragStartY = e.touches[0].clientY;
+                draggedObject = objects.find(obj => obj.id === e.target.id);
+                initialX = draggedObject.x;
+                initialY = draggedObject.y;
+                e.target.style.cursor = 'grabbing';
+            }
+        }
+
+        function onMouseUp(e) {
+            if (isDragging) {
+                isDragging = false;
+                e.target.style.cursor = 'grab';
+            }
+        }
+
+        function onTouchEnd(e) {
+            if (isDragging) {
+                isDragging = false;
+                e.target.style.cursor = 'grab';
+            }
+        }
+
+        function onMouseMove(e) {
+            if (isDragging) {
+                e.preventDefault(); // Prevent default action to avoid potential issues
+
+                const deltaX = e.clientX - dragStartX;
+                const deltaY = e.clientY - dragStartY;
+
+                const moveX = Math.round(deltaX / (window.innerWidth * 0.8 / GRID_SIZE_X));
+                const moveY = Math.round(deltaY / (window.innerHeight * 0.8 / GRID_SIZE_Y));
+
+                let newX = initialX;
+                let newY = initialY;
+
+                if (draggedObject.move === 'horizontal') {
+                    newX = Math.min(Math.max(initialX + moveX, 0), GRID_SIZE_X - draggedObject.width);
+                } else if (draggedObject.move === 'vertical') {
+                    newY = Math.min(Math.max(initialY + moveY, 0), GRID_SIZE_Y - draggedObject.height);
+                }
+                                  draggedObject.x = newX;
+                    draggedObject.y = newY;
+                    updateObjectPosition(draggedObject);
+
+                    // Check if the key object has touched the right border
+                    if (draggedObject.type === 'key' && newX + draggedObject.width >= GRID_SIZE_X) {
+                        showMessage();
+                    }
+                }
+            }
+        }
+
+        function onTouchMove(e) {
+            if (isDragging) {
+                e.preventDefault(); // Prevent default action to avoid potential issues
+
+                const deltaX = e.touches[0].clientX - dragStartX;
+                const deltaY = e.touches[0].clientY - dragStartY;
+
+                const moveX = Math.round(deltaX / (window.innerWidth * 0.8 / GRID_SIZE_X));
+                const moveY = Math.round(deltaY / (window.innerHeight * 0.8 / GRID_SIZE_Y));
+
+                let newX = initialX;
+                let newY = initialY;
+
+                if (draggedObject.move === 'horizontal') {
+                    newX = Math.min(Math.max(initialX + moveX, 0), GRID_SIZE_X - draggedObject.width);
+                } else if (draggedObject.move === 'vertical') {
+                    newY = Math.min(Math.max(initialY + moveY, 0), GRID_SIZE_Y - draggedObject.height);
+                }
+
+                if (!isCollision(newY, newX, draggedObject.width, draggedObject.height)) {
+                    draggedObject.x = newX;
+                    draggedObject.y = newY;
+                    updateObjectPosition(draggedObject);
+
+                    // Check if the key object has touched the right border
+                    if (draggedObject.type === 'key' && newX + draggedObject.width >= GRID_SIZE_X) {
+                        showMessage();
+                    }
+                }
+            }
+        }
+
+        function isCollision(y, x, width, height) {
+            return objects.some(obj =>
+                obj !== draggedObject &&
+                x < obj.x + obj.width &&
+                x + width > obj.x &&
+                y < obj.y + obj.height &&
+                y + height > obj.y
+            );
+        }
+
+        function updateObjectPosition(obj) {
+            const element = document.getElementById(obj.id);
+            if (element) {
+                element.style.left = `${obj.x * CELL_SIZE}%`;
+                element.style.top = `${obj.y * CELL_SIZE}%`;
+            }
+        }
+
+        // Function to display the message box
+        function showMessage() {
+            const messageBox = document.createElement('div');
+            messageBox.id = 'message-box';
+            messageBox.style.position = 'fixed';
+            messageBox.style.top = '50%';
+            messageBox.style.left = '50%';
+            messageBox.style.transform = 'translate(-50%, -50%)';
+            messageBox.style.padding = '20px';
+            messageBox.style.backgroundColor = 'white';
+            messageBox.style.border = '2px solid black';
+            messageBox.style.zIndex = 1000;
+            messageBox.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.5)';
+
+            const messageText = document.createElement('p');
+            messageText.textContent = 'Good Job!';
+            messageBox.appendChild(messageText);
+
+            const okButton = document.createElement('button');
+            okButton.textContent = 'OK';
+            okButton.onclick = () => {
+                location.reload(); // Refresh the page
+            };
+            messageBox.appendChild(okButton);
+
+            document.body.appendChild(messageBox);
+        }
+
+        createBoard();
+    </script>
+</body>
+</html>
+
+
+                if (!isCollision(newY, newX, draggedObject.width, draggedObject.height)) {
+                    draggedObject.x
+      
